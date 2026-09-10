@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+CUSTOM FEATURE MANIFEST
+This app calls the Anthropic Claude API directly from the browser using fetch() against
+https://api.anthropic.com/v1/messages, with the anthropic-dangerous-direct-browser-access
+header set to true. The model is pinned in the CLAUDE_MODEL constant at the top of the
+script block, currently claude-sonnet-5. The API key and an optional session name are
+entered in the Settings modal and persisted to localStorage only, never written into
+source or transmitted anywhere but the Anthropic API. Export uses the browser Clipboard
+API to write two payloads at once, a text/html payload built from the live editable table
+markup and a text/plain tab separated fallback, so pasting into Word, Google Docs, or a
+plain text field preserves the table where the destination supports rich paste and still
+reads cleanly as a grid where it does not.
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Rubric Builder | AppADay</title>
+<meta name="description" content="Enter an assignment name and grading criteria, generate a four level rubric with Claude, edit any cell in place, then copy the finished table straight into a document.">
+<meta property="og:title" content="Rubric Builder | AppADay">
+<meta property="og:description" content="Generate an editable four level grading rubric from an assignment name and a list of criteria, then copy it straight into a document.">
+<meta property="og:image" content="https://augustineiacopelli.github.io/appaday-126-rubric-builder/og-image.png?v=1">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://augustineiacopelli.github.io/appaday-126-rubric-builder/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Rubric Builder | AppADay">
+<meta name="twitter:description" content="Generate an editable four level grading rubric from an assignment name and a list of criteria, then copy it straight into a document.">
+<meta name="twitter:image" content="https://augustineiacopelli.github.io/appaday-126-rubric-builder/og-image.png?v=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1e1e2d;
+    --ink-soft: #55566b;
+    --paper: #f7f7fb;
+    --card: #ffffff;
+    --line: #e2e2ee;
+    --accent: #4338ca;
+    --accent-dark: #33279a;
+    --accent-soft: #eeecfd;
+    --danger: #b3261e;
+    --radius: 14px;
+    font-size: 16px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100dvh;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Space Grotesk', 'Inter', sans-serif;
+    margin: 0;
+  }
+
+  a { color: var(--accent); }
+
+  .backlink {
+    color: var(--ink-soft);
+    text-decoration: none;
+    font-size: clamp(0.78rem, 1.6vw, 0.88rem);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .backlink:hover { color: var(--accent); }
+
+  header.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px clamp(16px, 4vw, 32px);
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .brand h1 {
+    font-size: clamp(1.15rem, 3.2vw, 1.5rem);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .brand span.tag {
+    font-size: clamp(0.68rem, 1.6vw, 0.78rem);
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  button.icon-btn {
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  button.icon-btn:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  main {
+    flex: 1;
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+    padding: clamp(16px, 4vw, 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: clamp(16px, 4vw, 28px);
+  }
+
+  .panel h2 {
+    font-size: clamp(1.05rem, 2.6vw, 1.3rem);
+    margin-bottom: 4px;
+  }
+
+  .panel .subtext {
+    color: var(--ink-soft);
+    font-size: clamp(0.82rem, 2vw, 0.92rem);
+    margin-bottom: 18px;
+  }
+
+  label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: clamp(0.9rem, 2.2vw, 1rem);
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 44px;
+  }
+
+  input[type="text"]:focus, input[type="password"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    background: var(--card);
+  }
+
+  .field { margin-bottom: 20px; }
+
+  .criteria-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .criterion-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .criterion-row input[type="text"] { flex: 1; }
+
+  button.remove-btn {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease;
+  }
+
+  button.remove-btn:hover { background: #fbe9e7; }
+
+  button.add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 1px dashed var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-dark);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+
+  button.add-btn:hover { background: #e1ddfb; }
+
+  .primary-btn {
+    width: 100%;
+    padding: 14px;
+    min-height: 48px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: #ffffff;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: clamp(0.92rem, 2.3vw, 1rem);
+    cursor: pointer;
+    margin-top: 6px;
+    transition: background 0.15s ease, opacity 0.15s ease;
+  }
+
+  .primary-btn:hover:not(:disabled) { background: var(--accent-dark); }
+
+  .primary-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .secondary-btn {
+    padding: 12px 18px;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+
+  .secondary-btn:hover { background: var(--paper); }
+
+  .action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .status-msg {
+    font-size: 0.85rem;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-top: 14px;
+    display: none;
+  }
+
+  .status-msg.error {
+    display: block;
+    background: #fdecea;
+    color: var(--danger);
+    border: 1px solid #f3c7c3;
+  }
+
+  .status-msg.success {
+    display: block;
+    background: #e8f5e9;
+    color: #1b5e20;
+    border: 1px solid #c3e6c5;
+  }
+
+  .status-msg.loading {
+    display: block;
+    background: var(--accent-soft);
+    color: var(--accent-dark);
+    border: 1px solid #d3cdf6;
+  }
+
+  #rubricPanel { display: none; }
+
+  .rubric-meta {
+    font-size: clamp(0.85rem, 2.2vw, 0.95rem);
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+  }
+
+  .rubric-meta strong { color: var(--ink); }
+
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  table.rubric-table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 640px;
+    font-size: clamp(0.82rem, 2vw, 0.9rem);
+  }
+
+  table.rubric-table th {
+    background: var(--accent-soft);
+    color: var(--accent-dark);
+    text-align: left;
+    padding: 12px 14px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+
+  table.rubric-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+    vertical-align: top;
+    min-width: 160px;
+  }
+
+  table.rubric-table td:last-child { border-right: none; }
+
+  table.rubric-table td.criterion-cell {
+    font-weight: 600;
+    background: var(--paper);
+    min-width: 140px;
+  }
+
+  table.rubric-table td[contenteditable="true"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    background: #fbfbff;
+  }
+
+  footer.app-footer {
+    text-align: center;
+    padding: 20px;
+    border-top: 1px solid var(--line);
+    background: var(--card);
+  }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(30, 30, 45, 0.55);
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 50;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal-box {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: clamp(18px, 4vw, 26px);
+    width: 100%;
+    max-width: 420px;
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+
+  .modal-box h2 {
+    font-size: 1.15rem;
+    margin-bottom: 4px;
+  }
+
+  .modal-box .subtext {
+    color: var(--ink-soft);
+    font-size: 0.85rem;
+    margin-bottom: 18px;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+  }
+
+  @media (max-width: 480px) {
+    .modal-actions { flex-direction: column-reverse; }
+    .modal-actions button { width: 100%; }
+    .action-row { flex-direction: column; }
+    .action-row button { width: 100%; }
+  }
+
+  @media print {
+    header.app-header, footer.app-footer, #inputPanel, .action-row, .status-msg {
+      display: none !important;
+    }
+    body { background: #ffffff; }
+    main { max-width: 100%; padding: 0; }
+    .panel { border: none; padding: 0; }
+    .rubric-meta { color: #000000; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <h1>Rubric Builder</h1>
+    <span class="tag">AppADay 126</span>
+  </div>
+  <div class="header-actions">
+    <a class="backlink" href="https://augustineiacopelli.github.io/appaday/">&larr; Portfolio</a>
+    <button class="icon-btn" id="settingsBtn" type="button" aria-label="Open settings">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel" id="inputPanel">
+    <h2>Build a rubric</h2>
+    <p class="subtext">Name the assignment, list what you are grading, and Claude will draft a four level descriptor for each one.</p>
+
+    <div class="field">
+      <label for="assignmentName">Assignment name</label>
+      <input type="text" id="assignmentName" placeholder="e.g., Severe Weather Case Study">
+    </div>
+
+    <div class="field">
+      <label>Grading criteria</label>
+      <div class="criteria-list" id="criteriaList"></div>
+      <button class="add-btn" id="addCriterionBtn" type="button">+ Add criterion</button>
+    </div>
+
+    <button class="primary-btn" id="generateBtn" type="button" disabled>Generate rubric</button>
+    <div class="status-msg" id="generateStatus"></div>
+  </section>
+
+  <section class="panel" id="rubricPanel">
+    <h2>Your rubric</h2>
+    <p class="rubric-meta"><strong id="rubricTitle"></strong> &middot; tap any descriptor to edit it</p>
+
+    <div class="table-scroll">
+      <table class="rubric-table" id="rubricTable"></table>
+    </div>
+
+    <div class="action-row">
+      <button class="secondary-btn" id="copyBtn" type="button">Copy to clipboard</button>
+      <button class="secondary-btn" id="startOverBtn" type="button">Start over</button>
+    </div>
+    <div class="status-msg" id="rubricStatus"></div>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <a class="backlink" href="https://augustineiacopelli.github.io/appaday/">&larr; Back to the AppADay portfolio</a>
+</footer>
+
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal-box">
+    <h2>Settings</h2>
+    <p class="subtext">Stored only in this browser. Never leaves your device except in the request to Claude.</p>
+
+    <div class="field">
+      <label for="apiKeyInput">Claude API key</label>
+      <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+    </div>
+
+    <div class="field" style="margin-bottom: 8px;">
+      <label for="sessionNameInput">Session name (optional)</label>
+      <input type="text" id="sessionNameInput" placeholder="e.g., Fall meteorology grading">
+    </div>
+
+    <div class="modal-actions">
+      <button class="secondary-btn" id="closeSettingsBtn" type="button">Cancel</button>
+      <button class="primary-btn" id="saveSettingsBtn" type="button" style="width:auto; margin-top:0;">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const CLAUDE_MODEL = 'claude-sonnet-5';
+
+  const formState = {
+    assignmentName: '',
+    criteria: ['']
+  };
+
+  const rubricState = {
+    assignmentName: '',
+    criteria: []
+  };
+
+  let viewMode = 'input';
+
+  const criteriaListEl = document.getElementById('criteriaList');
+  const assignmentNameEl = document.getElementById('assignmentName');
+  const generateBtn = document.getElementById('generateBtn');
+  const generateStatus = document.getElementById('generateStatus');
+  const inputPanel = document.getElementById('inputPanel');
+  const rubricPanel = document.getElementById('rubricPanel');
+  const rubricTable = document.getElementById('rubricTable');
+  const rubricTitle = document.getElementById('rubricTitle');
+  const rubricStatus = document.getElementById('rubricStatus');
+
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+  const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const sessionNameInput = document.getElementById('sessionNameInput');
+
+  const DESCRIPTOR_COLS = ['excellent', 'good', 'needsWork', 'missing'];
+  const DESCRIPTOR_LABELS = { excellent: 'Excellent', good: 'Good', needsWork: 'Needs Work', missing: 'Missing' };
+
+  function loadSettings() {
+    try {
+      const savedKey = localStorage.getItem('rubricBuilder_apiKey');
+      const savedSession = localStorage.getItem('rubricBuilder_sessionName');
+      if (savedKey) apiKeyInput.value = savedKey;
+      if (savedSession) sessionNameInput.value = savedSession;
+    } catch (err) {
+      console.warn('Could not read settings from localStorage', err);
+    }
+  }
+
+  function saveSettings() {
+    try {
+      localStorage.setItem('rubricBuilder_apiKey', apiKeyInput.value.trim());
+      localStorage.setItem('rubricBuilder_sessionName', sessionNameInput.value.trim());
+    } catch (err) {
+      console.warn('Could not write settings to localStorage', err);
+    }
+    settingsOverlay.classList.remove('open');
+  }
+
+  function getApiKey() {
+    try {
+      return localStorage.getItem('rubricBuilder_apiKey') || '';
+    } catch (err) {
+      return '';
+    }
+  }
+
+  function renderCriteriaList() {
+    while (criteriaListEl.firstChild) {
+      criteriaListEl.removeChild(criteriaListEl.firstChild);
+    }
+    formState.criteria.forEach(function (value, index) {
+      const row = document.createElement('div');
+      row.className = 'criterion-row';
+
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'e.g., Thesis clarity';
+      input.value = value;
+      input.setAttribute('data-index', String(index));
+      input.addEventListener('input', function (e) {
+        formState.criteria[index] = e.target.value;
+        validateForm();
+      });
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'remove-btn';
+      removeBtn.setAttribute('aria-label', 'Remove criterion');
+      removeBtn.textContent = String.fromCharCode(215);
+      removeBtn.addEventListener('click', function () {
+        if (formState.criteria.length <= 1) {
+          formState.criteria[0] = '';
+          renderCriteriaList();
+          validateForm();
+          return;
+        }
+        formState.criteria.splice(index, 1);
+        renderCriteriaList();
+        validateForm();
+      });
+
+      row.appendChild(input);
+      row.appendChild(removeBtn);
+      criteriaListEl.appendChild(row);
+    });
+  }
+
+  function validateForm() {
+    const hasName = assignmentNameEl.value.trim().length > 0;
+    const hasCriterion = formState.criteria.some(function (c) { return c.trim().length > 0; });
+    generateBtn.disabled = !(hasName && hasCriterion);
+  }
+
+  function setStatus(el, kind, message) {
+    el.className = 'status-msg' + (kind ? ' ' + kind : '');
+    el.textContent = message || '';
+  }
+
+  function buildPrompt(assignmentName, criteria) {
+    const list = criteria.filter(function (c) { return c.trim().length > 0; });
+    let prompt = 'You are helping an instructor write a grading rubric for an assignment called "' + assignmentName + '". ';
+    prompt += 'Here are the grading criteria, one per line: ' + list.join('; ') + '. ';
+    prompt += 'For each criterion, write a short descriptor, one or two sentences, for four performance levels: excellent, good, needsWork, and missing. ';
+    prompt += 'Respond with ONLY raw JSON, no markdown fences, no commentary, in exactly this shape: ';
+    prompt += '{"criteria":[{"name":"criterion name","excellent":"...","good":"...","needsWork":"...","missing":"..."}]}';
+    return prompt;
+  }
+
+  function extractJson(text) {
+    let cleaned = text.trim();
+    if (cleaned.indexOf('```') === 0) {
+      cleaned = cleaned.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    }
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end === -1) {
+      throw new Error('No JSON object found in response');
+    }
+    return JSON.parse(cleaned.slice(start, end + 1));
+  }
+
+  async function generateRubric() {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setStatus(generateStatus, 'error', 'Add your Claude API key in Settings first.');
+      settingsOverlay.classList.add('open');
+      return;
+    }
+
+    const assignmentName = assignmentNameEl.value.trim();
+    const criteria = formState.criteria.filter(function (c) { return c.trim().length > 0; });
+
+    generateBtn.disabled = true;
+    setStatus(generateStatus, 'loading', 'Generating rubric with Claude...');
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 2000,
+          messages: [{ role: 'user', content: buildPrompt(assignmentName, criteria) }]
+        })
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error('API error ' + response.status + ': ' + errBody.slice(0, 200));
+      }
+
+      const data = await response.json();
+      const textBlock = (data.content || []).find(function (b) { return b.type === 'text'; });
+      if (!textBlock) {
+        throw new Error('No text content in API response');
+      }
+
+      const parsed = extractJson(textBlock.text);
+      if (!parsed.criteria || !Array.isArray(parsed.criteria) || parsed.criteria.length === 0) {
+        throw new Error('Response JSON did not include a criteria array');
+      }
+
+      rubricState.assignmentName = assignmentName;
+      rubricState.criteria = parsed.criteria.map(function (c) {
+        return {
+          name: c.name || '',
+          excellent: c.excellent || '',
+          good: c.good || '',
+          needsWork: c.needsWork || '',
+          missing: c.missing || ''
+        };
+      });
+
+      renderRubricTable();
+      setStatus(generateStatus, '', '');
+      showRubricView();
+    } catch (err) {
+      setStatus(generateStatus, 'error', 'Could not generate the rubric. ' + err.message);
+    } finally {
+      validateForm();
+    }
+  }
+
+  function renderRubricTable() {
+    while (rubricTable.firstChild) {
+      rubricTable.removeChild(rubricTable.firstChild);
+    }
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    ['Criterion', 'Excellent', 'Good', 'Needs Work', 'Missing'].forEach(function (label) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    rubricTable.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rubricState.criteria.forEach(function (criterion, rowIndex) {
+      const tr = document.createElement('tr');
+
+      const nameCell = document.createElement('td');
+      nameCell.className = 'criterion-cell';
+      nameCell.textContent = criterion.name;
+      nameCell.setAttribute('contenteditable', 'true');
+      nameCell.setAttribute('data-row', String(rowIndex));
+      nameCell.setAttribute('data-col', 'name');
+      nameCell.addEventListener('blur', handleCellBlur);
+      tr.appendChild(nameCell);
+
+      DESCRIPTOR_COLS.forEach(function (col) {
+        const td = document.createElement('td');
+        td.textContent = criterion[col];
+        td.setAttribute('contenteditable', 'true');
+        td.setAttribute('data-row', String(rowIndex));
+        td.setAttribute('data-col', col);
+        td.addEventListener('blur', handleCellBlur);
+        tr.appendChild(td);
+      });
+
+      tbody.appendChild(tr);
+    });
+    rubricTable.appendChild(tbody);
+
+    rubricTitle.textContent = rubricState.assignmentName;
+  }
+
+  function handleCellBlur(e) {
+    const row = parseInt(e.target.getAttribute('data-row'), 10);
+    const col = e.target.getAttribute('data-col');
+    if (!rubricState.criteria[row]) return;
+    rubricState.criteria[row][col] = e.target.textContent.trim();
+  }
+
+  function showRubricView() {
+    viewMode = 'rubric';
+    inputPanel.style.display = 'none';
+    rubricPanel.style.display = 'block';
+  }
+
+  function showInputView() {
+    viewMode = 'input';
+    inputPanel.style.display = 'block';
+    rubricPanel.style.display = 'none';
+  }
+
+  function buildHtmlTable() {
+    let html = '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">';
+    html += '<tr><th>Criterion</th><th>Excellent</th><th>Good</th><th>Needs Work</th><th>Missing</th></tr>';
+    rubricState.criteria.forEach(function (c) {
+      html += '<tr><td><strong>' + escapeHtml(c.name) + '</strong></td>';
+      DESCRIPTOR_COLS.forEach(function (col) {
+        html += '<td>' + escapeHtml(c[col]) + '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</table>';
+    return html;
+  }
+
+  function buildPlainTextTable() {
+    const lines = [rubricState.assignmentName, ['Criterion', 'Excellent', 'Good', 'Needs Work', 'Missing'].join('\t')];
+    rubricState.criteria.forEach(function (c) {
+      lines.push([c.name, c.excellent, c.good, c.needsWork, c.missing].join('\t'));
+    });
+    return lines.join('\n');
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+
+  async function copyRubricToClipboard() {
+    const htmlPayload = buildHtmlTable();
+    const textPayload = buildPlainTextTable();
+
+    try {
+      if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+        const item = new ClipboardItem({
+          'text/html': new Blob([htmlPayload], { type: 'text/html' }),
+          'text/plain': new Blob([textPayload], { type: 'text/plain' })
+        });
+        await navigator.clipboard.write([item]);
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(textPayload);
+      } else {
+        throw new Error('Clipboard API not available in this browser');
+      }
+      setStatus(rubricStatus, 'success', 'Rubric copied. Paste into your document.');
+    } catch (err) {
+      setStatus(rubricStatus, 'error', 'Could not copy automatically. ' + err.message);
+    }
+  }
+
+  function startOver() {
+    formState.assignmentName = '';
+    formState.criteria = [''];
+    rubricState.assignmentName = '';
+    rubricState.criteria = [];
+    assignmentNameEl.value = '';
+    renderCriteriaList();
+    validateForm();
+    setStatus(generateStatus, '', '');
+    setStatus(rubricStatus, '', '');
+    showInputView();
+  }
+
+  assignmentNameEl.addEventListener('input', function (e) {
+    formState.assignmentName = e.target.value;
+    validateForm();
+  });
+
+  document.getElementById('addCriterionBtn').addEventListener('click', function () {
+    formState.criteria.push('');
+    renderCriteriaList();
+    validateForm();
+    const inputs = criteriaListEl.querySelectorAll('input[type="text"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+
+  generateBtn.addEventListener('click', generateRubric);
+  document.getElementById('copyBtn').addEventListener('click', copyRubricToClipboard);
+  document.getElementById('startOverBtn').addEventListener('click', startOver);
+
+  settingsBtn.addEventListener('click', function () {
+    loadSettings();
+    settingsOverlay.classList.add('open');
+  });
+  closeSettingsBtn.addEventListener('click', function () {
+    settingsOverlay.classList.remove('open');
+  });
+  saveSettingsBtn.addEventListener('click', saveSettings);
+  settingsOverlay.addEventListener('click', function (e) {
+    if (e.target === settingsOverlay) settingsOverlay.classList.remove('open');
+  });
+
+  loadSettings();
+  renderCriteriaList();
+  validateForm();
+</script>
+
+</body>
+</html>
